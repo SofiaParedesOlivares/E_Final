@@ -1,0 +1,362 @@
+---
+title: "P_final"
+output: html_document
+date: "2024-11-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rio)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(polycor)
+library(modelsummary)
+library(psych)
+```
+
+# Importar datos
+```{r}
+data <- import("602-Modulo1287.sav")
+```
+
+
+# SELECCIÓN Y FACTORIZACIÓN DE VARIABLES
+```{r}
+combined_data <- data %>%
+  select(
+    edad, depa_nac, p301, p116, p113, p114, p201, p501, p504
+  )
+
+```
+
+# Limpieza y transformación de datos
+```{r}
+data_clean <- combined_data %>%
+  mutate(
+    edad = as.numeric(edad),
+    depa_nac = factor(depa_nac),
+    conocimiento_institucion_derechosLGBTIQ = factor(p301, labels = c("Sí", "No")),
+    expresion_sin_temor = as.numeric(na_if(p116, 9) == 1),
+    orientacionsexual = factor(case_when(
+      p113 == 1 ~ "Homosexual",
+      p113 == 2 ~ "Bisexual",
+      p113 == 3 ~ "Pansexual",
+      p113 == 4 ~ "Asexual",
+      p113 %in% c(5, 6, 7, 8) ~ "Otros"
+    )),
+    identidadgenero = factor(case_when(
+      p114 == 1 ~ "Trans",
+      p114 == 2 ~ "Transexual",
+      p114 == 3 ~ "Trans femenina",
+      p114 == 4 ~ "Trans masculino",
+      p114 %in% c(6, 7, 8) ~ "Otros",
+      p114 == 9 ~ "No Binario"
+    )),
+    sufrio_discriminacion = factor(na_if(p201, 9), labels = c("Sí", "No")),
+    sociedad_respetuosa = factor(p501, labels = c("Sí", "No", "No sabe")),
+    reconocimiento_derechosLGBTIQ = factor(p504, labels = c("Muy Malo", "Malo", "Regular", "Bueno"))
+  ) %>%
+  select(-starts_with("p")) %>%
+  na.omit()
+```
+
+
+# ANÁLISIS POR HIPÓTESIS
+# Hipótesis 1: Edad y departamento de nacimiento
+```{r}
+modelo_h1 <- glm(
+  expresion_sin_temor ~ edad + depa_nac,
+  data = data_clean,
+  family = binomial
+)
+```
+
+
+# Hipótesis 2: Conocimiento sobre instituciones, orientación sexual e identidad de género
+```{r}
+modelo_h2 <- glm(
+  expresion_sin_temor ~ conocimiento_institucion_derechosLGBTIQ + orientacionsexual + identidadgenero,
+  data = data_clean,
+  family = binomial
+)
+```
+
+
+# Hipótesis 3: Discriminación, percepción de la sociedad y reconocimiento de derechos
+```{r}
+modelo_h3 <- glm(
+  expresion_sin_temor ~ sufrio_discriminacion + sociedad_respetuosa + reconocimiento_derechosLGBTIQ,
+  data = data_clean,
+  family = binomial
+)
+```
+
+
+# TABLAS DE RESULTADOS
+```{r}
+modelsummary(
+  list("H1: Edad y Departamento" = modelo_h1,
+       "H2: Instituciones y Características" = modelo_h2,
+       "H3: Discriminación y Percepción" = modelo_h3),
+  fmt = function(x) format(x, digits = 4, scientific = FALSE),
+  exponentiate = TRUE,  # Mostrar Odds Ratio
+  statistic = "conf.int",
+  stars = TRUE
+)
+
+```
+
+
+# ANÁLISIS DESCRIPTIVO DE VARIABLES CLAVE
+```{r}
+descriptivos <- data_clean %>%
+  summarise(
+    expresion_media = mean(expresion_sin_temor, na.rm = TRUE),
+    expresion_sd = sd(expresion_sin_temor, na.rm = TRUE),
+    expresion_mediana = median(expresion_sin_temor, na.rm = TRUE)
+  
+  )
+print(descriptivos)
+```
+#REGRESIÓN LOGÍSTICA
+
+```{r}
+modelo1 <- glm(expresion_sin_temor ~ edad + depa_nac + conocimiento_institucion_derechosLGBTIQ +
+                 orientacionsexual + identidadgenero + sufrio_discriminacion +
+                 sociedad_respetuosa + reconocimiento_derechosLGBTIQ,
+               data = data_clean, family = binomial)
+
+formatoNumero <- function(x) format(x, digits = 4, scientific = FALSE)
+
+modelsummary(modelo1,
+             fmt = formatoNumero,
+             exponentiate = TRUE,
+             statistic = "conf.int",
+             title = "Regresión Logística (Coeficientes Exponenciados)",
+             stars = TRUE,
+             output = "kableExtra")
+```
+
+```{r}
+library(broom) 
+modelo1_tidy <- tidy(modelo1, exponentiate = TRUE, conf.int = TRUE)
+modelo1_tidy <- modelo1_tidy %>% filter(term != "(Intercept)")
+
+ggplot(modelo1_tidy, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_point(color = "blue", size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, color = "gray") +
+  coord_flip() +
+  labs(
+    title = "Coeficientes Exponenciados de la Regresión Logística",
+    x = "Variables Predictoras",
+    y = "Razón de Probabilidades (OR)"
+  ) +
+  theme_minimal()
+```
+
+
+# CORRELACIÓN ENTRE VARIABLES
+```{r}
+data_numeric <- data_clean %>%
+  mutate(across(everything(), ~ if (is.factor(.) | is.character(.)) as.numeric(as.factor(.)) else .))
+
+cor_matrix <- polycor::hetcor(data_numeric)$correlations
+cor_matrix <- round(cor_matrix, 2)
+print(cor_matrix)
+```
+
+
+# ANÁLISIS FACTORIAL (Opcional)
+```{r}
+resfa <- psych::fa(data_numeric, nfactors = 2, rotate = "varimax")
+```
+
+# Cargar las bibliotecas necesarias
+```{r}
+library(polycor)  # Para calcular la matriz de correlación de variables ordinales
+library(ggcorrplot)  # Para visualizar la matriz de correlación
+library(psych)  # Para análisis factorial y pruebas de ajuste
+library(matrixcalc)  # Para verificar la singularidad de la matriz
+library(GPArotation)  # Para la rotación de factores en el análisis factorial
+```
+
+# 1. Correlación entre las variables transformadas en el conjunto de datos limpio
+```{r}
+corMatrix <- polycor::hetcor(data_clean)$correlations  # Calcula la matriz de correlación
+```
+
+
+# Redondear la matriz para hacerla más legible
+```{r}
+round(corMatrix, 2)  # Muestra las correlaciones redondeadas
+```
+
+
+# Visualización de la matriz de correlación usando ggcorrplot
+```{r}
+ggcorrplot(corMatrix, method = "circle", type = "upper", lab = TRUE, lab_size = 3, 
+           title = "Matriz de Correlación de las Variables", colors = c("blue", "white", "red"))
+```
+
+
+# 2. Evaluación de la adecuación para el análisis factorial
+
+# Medida KMO (Kaiser-Meyer-Olkin) para verificar la adecuación de los datos para el análisis factorial
+```{r}
+KMO(corMatrix)  # Valores cercanos a 1 indican que el análisis factorial es adecuado
+```
+
+
+# Prueba de Bartlett para la esfericidad (verifica si las variables están correlacionadas significativamente)
+```{r}
+bartlett_test <- cortest.bartlett(corMatrix, n = nrow(data_clean))$p.value
+if (bartlett_test > 0.05) {
+  print("No se rechaza la hipótesis nula de esfericidad. El análisis factorial no es adecuado.")
+} else {
+  print("Se rechaza la hipótesis nula de esfericidad. El análisis factorial es adecuado.")
+}
+```
+
+
+# 3. Verificar singularidad de la matriz de correlación
+```{r}
+is.singular.matrix(corMatrix)  # Debería retornar FALSE para proceder con el análisis
+```
+
+
+# 4. Determinación del número de factores mediante el "scree plot"
+
+```{r}
+data_limpia <- data_clean
+```
+
+
+```{r}
+data_limpia <- lapply(data_limpia, function(x) if(is.factor(x) | is.character(x)) as.numeric(factor(x)) else x)
+```
+
+```{r}
+data_limpia <- as.data.frame(data_limpia)
+```
+
+```{r}
+data_limpia <- na.omit(data_limpia)
+```
+
+```{r}
+fa.parallel(data_limpia, fa = 'fa', cor = 'mixed', correct = TRUE, plot = TRUE)  # Usamos fa.parallel para determinar el número de factores
+```
+
+
+# 5. Análisis factorial exploratorio (EFA) con 2 factores
+```{r}
+resfa <- fa(data_limpia, nfactors = 2, cor = 'mixed', rotate = "varimax", fm = "minres")
+```
+
+
+# Mostrar las cargas factoriales
+```{r}
+print(resfa$loadings)  # Cargas factoriales de las variables en los factores
+```
+
+
+# Mostrar las cargas factoriales con un corte en 0.5 (solo mostrar las cargas más relevantes)
+```{r}
+print(resfa$loadings, cutoff = 0.5)
+```
+
+
+# Diagrama de los factores
+```{r}
+fa.diagram(resfa, main = "Resultados del Análisis Factorial Exploratorio")
+```
+
+
+# 6. Medidas adicionales de ajuste del modelo
+```{r}
+cat("TLI: ", resfa$TLI, "\n")  # Tucker-Lewis Index
+cat("RMSEA: ", resfa$rms, "\n")  # Root Mean Square Error of Approximation
+cat("BIC: ", resfa$BIC, "\n")  # Bayesian Information Criterion
+```
+
+
+# 7. Generación de los puntajes factoriales (scores) para cada individuo
+```{r}
+data_limpia$expresion1 <- resfa$scores[, 1]  # Puntaje del primer factor
+data_limpia$expresion2 <- resfa$scores[, 2]  # Puntaje del segundo factor
+```
+
+
+# 8. Visualización de los puntajes factoriales
+# Comparar la expresión original con los puntajes modificados por el primer factor
+```{r}
+ggplot(data = data_limpia, aes(x = expresion_sin_temor, y = expresion1)) + 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x = "Expresión (original)", y = "Expresión (modificada por Factor 1)") +
+  ggtitle("Comparación de la expresión original vs. expresión del primer factor")
+```
+
+
+# Comparar la expresión original con los puntajes modificados por el segundo factor
+```{r}
+ggplot(data = data_limpia, aes(x = expresion_sin_temor, y = expresion2)) + 
+  geom_point() + 
+  theme_minimal() + 
+  labs(x = "Expresión (original)", y = "Expresión (modificada por Factor 2)") +
+  ggtitle("Comparación de la expresión original vs. expresión del segundo factor")
+
+```
+
+
+
+# VISUALIZACIÓN: EXPRESIÓN VS VARIABLES SIGNIFICATIVAS (Por Hipótesis)
+
+```{r}
+ggplot(data_limpia, aes(x = edad, y = expresion_sin_temor)) +
+  geom_point() +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = FALSE) +
+  theme_minimal() +
+  labs(title = "Expresión según Edad (Hipótesis 1)", x = "Edad", y = "Probabilidad de Expresión sin Temor")
+
+```
+
+```{r}
+ggplot(data_limpia, aes(x = as.numeric(orientacionsexual), y = expresion_sin_temor)) +
+  geom_point(aes(color = orientacionsexual), position = position_jitter(width = 0.1, height = 0.1)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE, color = "blue") +
+  theme_minimal() +
+  labs(title = "Hipótesis 2: Probabilidad de Expresión sin Temor según Orientación Sexual",
+       x = "Orientación Sexual (codificada numéricamente)", 
+       y = "Probabilidad de Expresión sin Temor")
+```
+
+
+```{r}
+ggplot(data_clean, aes(x = sociedad_respetuosa, y = expresion_sin_temor, fill = sociedad_respetuosa)) +
+  geom_bar(stat = "summary", fun = "mean") +
+  theme_minimal() +
+  labs(title = "Expresión según Percepción de la Sociedad (Hipótesis 3)", x = "Sociedad Respetuosa", y = "Promedio de Expresión sin Temor")
+
+```
+
+# GUARDAR RESULTADOS
+```{r}
+save.image(file = "data_numeric.RData")
+```
+
+```{r}
+library(writexl)
+
+write_xlsx(data_limpia, path = "data_limpia.xlsx")
+
+```
+
+```{r}
+write_xlsx(data_clean, path = "data_clean.xlsx")
+```
+
